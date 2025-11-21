@@ -5,7 +5,6 @@ const Card = ({ articles, onCardClick }) => {
   const [imageErrors, setImageErrors] = useState({})
   const [retryCount, setRetryCount] = useState({})
 
-  // Reset image errors when articles change
   useEffect(() => {
     setImageErrors({})
     setRetryCount({})
@@ -13,15 +12,14 @@ const Card = ({ articles, onCardClick }) => {
 
   const handleImageError = (index) => {
     const currentRetry = retryCount[index] || 0
-    
-    if (currentRetry < 2) {
-      // Retry with alternative URL format
-      setRetryCount(prev => ({
-        ...prev,
-        [index]: currentRetry + 1
-      }))
-    } else {
-      // Give up after 2 retries, show placeholder
+    const nextRetry = currentRetry + 1
+
+    setRetryCount(prev => ({
+      ...prev,
+      [index]: nextRetry
+    }))
+
+    if (nextRetry >= 2) {
       setImageErrors(prev => ({
         ...prev,
         [index]: true
@@ -33,49 +31,81 @@ const Card = ({ articles, onCardClick }) => {
     <div className='cardContainer'>
       {articles && articles.length > 0 ? (
         articles.map((article, index) => {
-          // Handle both NewsAPI and NewsData.io formats
-          const imageUrl = article.urlToImage || article.image_url || article.image
-          const sourceName = article.source?.name || article.source || 'Unknown Source'
-          const publishDate = article.publishedAt || article.pubDate || new Date().toISOString()
-          
+          // NewsData.io field mappings
+          const rawImage =
+            article.image_url || // NewsData.io
+            article.image || 
+            article.urlToImage // NewsAPI fallback
+
+          const sourceName =
+            article.source_id ||
+            article.source?.name ||
+            article.source ||
+            "Unknown Source"
+
+          const publishDate =
+            article.pubDate ||
+            article.publishedAt ||
+            new Date().toISOString()
+
+          const currentRetry = retryCount[index] || 0
+          const seed = encodeURIComponent(article.title || index)
+
+          // Smart image fallback system
+          let imageSrc = ''
+          if (rawImage && currentRetry === 0) {
+            imageSrc = rawImage
+          } else if (rawImage && currentRetry > 0) {
+            imageSrc = `https://picsum.photos/seed/${seed}/500/300?retry=${currentRetry}`
+          } else {
+            imageSrc = `https://picsum.photos/seed/${seed}/500/300`
+          }
+
           return (
-            <div 
-              key={index} 
+            <div
+              key={index}
               className='card'
               onClick={() => onCardClick(article)}
               role='button'
               tabIndex={0}
               onKeyPress={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  onCardClick(article)
-                }
+                if (e.key === 'Enter' || e.key === ' ') onCardClick(article)
               }}
             >
-              {imageUrl && !imageErrors[index] ? (
-                <img 
-                  key={`${index}-${retryCount[index] || 0}`}
-                  src={imageUrl} 
-                  alt={article.title} 
+              {imageSrc && !imageErrors[index] ? (
+                <img
+                  src={imageSrc}
+                  alt={article.title}
                   className='cardImage'
                   onError={() => handleImageError(index)}
                   loading='lazy'
-                  crossOrigin='anonymous'
                 />
               ) : (
                 <div className='cardImagePlaceholder'>
                   <div className='placeholderText'>📰</div>
                 </div>
               )}
+
               <div className='cardContent'>
                 <h3 className='cardTitle'>{article.title}</h3>
+
                 <p className='cardDescription'>
                   {article.description || 'No description available'}
                 </p>
+
                 <div className='cardMeta'>
                   <small>Source: {sourceName}</small>
                   <small>{new Date(publishDate).toLocaleDateString()}</small>
                 </div>
-                <button className='cardButton'>
+
+                <button
+                  type='button'
+                  className='cardButton'
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCardClick(article)
+                  }}
+                >
                   Read More
                 </button>
               </div>
@@ -83,7 +113,7 @@ const Card = ({ articles, onCardClick }) => {
           )
         })
       ) : (
-        <p className='noArticles'>No articles found. Try a different search or category.</p>
+        <p className='noArticles'>No articles found. Try another category or search.</p>
       )}
     </div>
   )

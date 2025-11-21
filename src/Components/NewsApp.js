@@ -1,7 +1,7 @@
+// NewsApp.js
 import React, { useState, useEffect } from 'react'
 import Card from './card'
 import ArticleModal from './ArticleModal'
-import { mockArticles, mockArticlesArray } from './mockData'
 import './index.css'
 
 const NewsApp = () => {
@@ -13,140 +13,115 @@ const NewsApp = () => {
     const [selectedArticle, setSelectedArticle] = useState(null)
     const [showModal, setShowModal] = useState(false)
     const [page, setPage] = useState(1)
+    const [hasMore, setHasMore] = useState(true)
 
-    // NewsData.io API key - Using your provided API key
-    const API_KEY = 'pub_5769276e8c2e4482a51773413149c5a4'
-    const BASE_URL = 'https://newsdata.io/api/1/latest'
+    // GNEWS API KEY
+    const API_KEY = '733f7a06d539dff9080f60c83a366b43'
 
-    // Simplified category to query mapping for NewsData.io
+    const SEARCH_BASE = 'https://gnews.io/api/v4/search'
+    const TOP_BASE = 'https://gnews.io/api/v4/top-headlines'
+
+    // Category → topic mapping
     const categoryQueries = {
-        general: '',
-        technology: 'technology OR AI OR software',
-        business: 'business OR finance OR economy',
-        entertainment: 'entertainment OR movies OR celebrities'
+        general: 'world',
+        technology: 'technology',
+        business: 'business',
+        entertainment: 'entertainment',
+        health: 'health',
+        crime: 'nation',
+        education: 'education'
     }
 
-    // Fetch news articles
+    // Build URL based on search OR category
+    const buildUrl = (searchQuery = '', selectedCategory = 'general', pageNum = 1, pageSize = 20) => {
+        const encodedSearch = encodeURIComponent(searchQuery)
+        const topic = categoryQueries[selectedCategory] || 'world'
+
+        const commonParams = `lang=en&max=${pageSize}&page=${pageNum}&apikey=${API_KEY}`
+
+        if (searchQuery.trim()) {
+            return `${SEARCH_BASE}?q=${encodedSearch}&${commonParams}`
+        } else {
+            return `${TOP_BASE}?topic=${topic}&${commonParams}`
+        }
+    }
+
+    // Fetch news function
     const fetchNews = async (searchQuery = '', selectedCategory = 'general', pageNum = 1) => {
         setLoading(true)
         setError(null)
+
         try {
-            let url = ''
-            const categoryQuery = categoryQueries[selectedCategory] || categoryQueries.general
-            
-            if (searchQuery) {
-                url = `${BASE_URL}?apikey=${API_KEY}&q=${encodeURIComponent(searchQuery)}&pageSize=100&page=${pageNum}`
+            const url = buildUrl(searchQuery, selectedCategory, pageNum)
+            console.log("Fetching:", url)
+
+            const res = await fetch(url)
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+            const data = await res.json()
+            const fetched = Array.isArray(data.articles) ? data.articles : []
+
+            if (pageNum === 1) {
+                setArticles(fetched)
             } else {
-                if (categoryQuery) {
-                    url = `${BASE_URL}?apikey=${API_KEY}&q=${categoryQuery}&pageSize=100&page=${pageNum}`
-                } else {
-                    url = `${BASE_URL}?apikey=${API_KEY}&pageSize=100&page=${pageNum}`
-                }
+                const existing = new Set(articles.map(a => a.url))
+                const uniqueNew = fetched.filter(a => a.url && !existing.has(a.url))
+                setArticles(prev => [...prev, ...uniqueNew])
             }
-            
-            console.log('Fetching from:', url)
-            const response = await fetch(url)
-            const data = await response.json()
-            
-            console.log('API Response:', data)
-            
-            if (data.status === 'error' || !data.results) {
-                throw new Error(data.message || 'Failed to fetch articles')
-            }
-            
-            if (data.results && data.results.length > 0) {
-                // On first page, set articles; on load more, append articles
-                if (pageNum === 1) {
-                    setArticles(data.results)
-                } else {
-                    setArticles(prev => [...prev, ...data.results])
-                }
-            } else {
-                if (pageNum === 1) {
-                    setError('No articles found for this search. Try a different category or search term.')
-                    // Use mock data as fallback
-                    const categoryMock = mockArticles[selectedCategory] || mockArticles.general
-                    setArticles(categoryMock)
-                }
-            }
+
+            setHasMore(fetched.length >= 20)
         } catch (err) {
-            console.error('Fetch error:', err)
-            console.log('Using mock data due to API error')
-            
-            // Filter mock data based on search or category
-            let filteredMock = []
-            
-            if (searchQuery) {
-                // Search across all categories
-                filteredMock = mockArticlesArray.filter(article => 
-                    article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    article.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    article.content.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-            } else {
-                // Get articles for selected category
-                filteredMock = mockArticles[selectedCategory] || mockArticles.general
-            }
-            
-            setArticles(filteredMock)
-            setError(null) // Clear error when using mock data
+            console.log("Error:", err)
+            setError("Failed to load articles.")
+            setHasMore(false)
         } finally {
             setLoading(false)
         }
     }
 
-    // Fetch news on component mount and when category changes
+    // Category change → reload
     useEffect(() => {
         setPage(1)
         fetchNews('', category, 1)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line
     }, [category])
 
-    // Handle search
     const handleSearch = (e) => {
         e.preventDefault()
-        if (search.trim()) {
-            setPage(1)
-            fetchNews(search, 'general', 1)
-        }
+        if (!search.trim()) return
+        setPage(1)
+        fetchNews(search, "general", 1)
     }
 
-    // Handle load more
-    const handleLoadMore = () => {
-        const nextPage = page + 1
-        setPage(nextPage)
-        fetchNews(search, category, nextPage)
+    const loadMore = () => {
+        const next = page + 1
+        setPage(next)
+        fetchNews(search, category, next)
     }
 
-    // Handle category change
-    const handleCategoryChange = (selectedCategory) => {
-        setCategory(selectedCategory)
+    const handleCategoryChange = (cat) => {
+        setCategory(cat)
         setSearch('')
+        setPage(1)
     }
 
-    // Handle card click to show modal
     const handleCardClick = (article) => {
         setSelectedArticle(article)
         setShowModal(true)
     }
 
-    // Handle modal close
-    const handleCloseModal = () => {
-        setShowModal(false)
-        setSelectedArticle(null)
-    }
-
     return (
         <div className='newsAppContainer'>
-            {/* Navigation Bar */}
+
+            {/* NAVBAR */}
             <nav className='navbar'>
-                <div className='navBrand'>
-                    <h1>📰 News</h1>
-                </div>
+                <div className='navBrand'><h1>📰 News</h1></div>
+
                 <ul className='navLinks'>
-                    <li><a href='#top' onClick={() => handleCategoryChange('general')}>All News</a></li>
-                    <li><a href='#top' onClick={() => handleCategoryChange('general')}>Trending</a></li>
+                    <li><a onClick={() => handleCategoryChange('general')}>All News</a></li>
+                    <li><a onClick={() => handleCategoryChange('general')}>Trending</a></li>
                 </ul>
+
                 <form className='searchBar' onSubmit={handleSearch}>
                     <input
                         type='text'
@@ -158,83 +133,52 @@ const NewsApp = () => {
                 </form>
             </nav>
 
-            {/* Category Buttons */}
-            <div className='categorySection'>
+            {/* CATEGORY */}
+            <div className="categorySection">
                 <h2>Categories</h2>
-                <div className='categoryBtn'>
-                    <button
-                        className={category === 'general' ? 'active' : ''}
-                        onClick={() => handleCategoryChange('general')}
-                    >
-                        📰 General
-                    </button>
-                    <button
-                        className={category === 'technology' ? 'active' : ''}
-                        onClick={() => handleCategoryChange('technology')}
-                    >
-                        💻 Technology
-                    </button>
-                    <button
-                        className={category === 'business' ? 'active' : ''}
-                        onClick={() => handleCategoryChange('business')}
-                    >
-                        💼 Business
-                    </button>
-                    <button
-                        className={category === 'entertainment' ? 'active' : ''}
-                        onClick={() => handleCategoryChange('entertainment')}
-                    >
-                        🎬 Entertainment
-                    </button>
+                <div className="categoryBtn">
+                    {[
+                        ['general', '📰 General'],
+                        ['technology', '💻 Technology'],
+                        ['business', '💼 Business'],
+                        ['entertainment', '🎬 Entertainment'],
+                        ['health', '🏥 Health'],
+                        ['crime', '🚨 Crime'],
+                        ['education', '🎓 Education'],
+                    ].map(([id, label]) => (
+                        <button
+                            key={id}
+                            className={category === id ? 'active' : ''}
+                            onClick={() => handleCategoryChange(id)}
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Loading and Error States */}
-            {loading && <div className='loading'>Loading news articles...</div>}
-            {error && <div className='error'>{error}</div>}
+            {loading && <div className="loading">Loading...</div>}
+            {error && <div className="error">{error}</div>}
 
-            {/* Main Content with Sidebar */}
-            <div className='mainContentWrapper'>
-                {/* Trending Sidebar */}
-                <aside className='trendingSidebar'>
-                    <div className='trendingHeader'>
-                        <h3>🔥 Trending</h3>
-                    </div>
-                    <div className='trendingList'>
-                        {articles.slice(0, 5).map((article, index) => (
-                            <div 
-                                key={index}
-                                className='trendingItem'
-                                onClick={() => handleCardClick(article)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <div className='trendingNumber'>{index + 1}</div>
-                                <div className='trendingContent'>
-                                    <h4>{article.title}</h4>
-                                    <small>{new Date(article.publishedAt || article.pubDate).toLocaleDateString()}</small>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </aside>
+            <div className="mainContentWrapper">
+                <div className="articlesMain">
+                    {!loading && !error && (
+                        <Card articles={articles} onCardClick={handleCardClick} />
+                    )}
 
-                {/* Articles Cards */}
-                <div className='articlesMain'>
-                    {!loading && !error && <Card articles={articles} onCardClick={handleCardClick} />}
-
-                    {/* Load More Button */}
-                    {!loading && articles.length > 0 && (
-                        <div className='loadMoreContainer'>
-                            <button className='loadMoreBtn' onClick={handleLoadMore}>
-                                Load More Articles
+                    {!loading && hasMore && (
+                        <div className="loadMoreContainer">
+                            <button className="loadMoreBtn" onClick={loadMore}>
+                                Load More
                             </button>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* Article Modal */}
-            {showModal && <ArticleModal article={selectedArticle} onClose={handleCloseModal} />}
+            {showModal && (
+                <ArticleModal article={selectedArticle} onClose={() => setShowModal(false)} />
+            )}
         </div>
     )
 }
